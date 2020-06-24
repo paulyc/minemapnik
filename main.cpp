@@ -81,16 +81,33 @@ mapnik::box2d<double> coords_to_box(const mapnik::projection &proj, double lat0,
 
 int main(int argc, char **argv)
 {
-    const auto stoi_fun = [](const std::string& value) { return std::stoi(value); };
+    constexpr auto stoi_fun = [](const std::string& value) { return std::stoi(value); };
+    constexpr auto stod_fun = [](const std::string& value) { return std::stod(value); };
     argparse::ArgumentParser argparse(PROGRAM_NAME);
     argparse.add_argument("width")
             .help("width in px (raster) points (vector)")
-            .default_value(1024)
+            .default_value(2048)
             .action(stoi_fun);
     argparse.add_argument("height")
             .help("height in px (raster) points (vector)")
-            .default_value(1024)
+            .default_value(2048)
             .action(stoi_fun);
+    argparse.add_argument("lat0")
+            .help("min/max latitude")
+            .default_value(25.83 /*26.67*/)
+            .action(stod_fun);
+    argparse.add_argument("lon0")
+            .help("min/max longitude")
+            .default_value(-80.22 /*-81.90*/)
+            .action(stod_fun);
+    argparse.add_argument("lat1")
+            .help("other latitude")
+            .default_value(25.75 /*26.58*/)
+            .action(stod_fun);
+    argparse.add_argument("lon1")
+            .help("other longitude")
+            .default_value(-80.11 /*-81.80*/)
+            .action(stod_fun);
     try {
         argparse.parse_args(argc, argv);
     } catch (const std::runtime_error& err) {
@@ -101,6 +118,10 @@ int main(int argc, char **argv)
 
     auto width = argparse.get<int>("width");
     auto height = argparse.get<int>("height");
+    auto lat0 = argparse.get<double>("lat0");
+    auto lon0 = argparse.get<double>("lon0");
+    auto lat1 = argparse.get<double>("lat1");
+    auto lon1 = argparse.get<double>("lon1");
 
     mapnik::datasource_cache::instance().register_datasources(MAPNIK_PREFIX "/lib/mapnik/input/");
     mapnik::freetype_engine::register_fonts(MAPNIK_PREFIX "/lib/mapnik/fonts");
@@ -111,12 +132,13 @@ int main(int argc, char **argv)
     mapnik::load_map(m, "/home/paulyc/development/openstreetmap-carto/project.xml");
     mapnik::projection proj(mapnik::projection(m.srs().c_str()));
 
-    m.zoom_to_box(coords_to_box(proj, 26.67, -81.90, 26.58, -81.80));
+    m.zoom_to_box(coords_to_box(proj, lat0, lon0, lat1, lon1));
+#ifdef RENDER_RASTER
     mapnik::image_rgba8 im(width, height);
     mapnik::agg_renderer<mapnik::image_rgba8> render(m, im);
     render.apply();
     mapnik::save_to_file(im, "image.png");
-
+#endif
     mapnik::cairo_surface_ptr surface =
         mapnik::cairo_surface_ptr(cairo_svg_surface_create("output.svg", width, height),
         mapnik::cairo_surface_closer());
