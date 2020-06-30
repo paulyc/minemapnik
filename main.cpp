@@ -15,7 +15,7 @@
 #include <cairo.h>
 #include <cairo-svg.h>
 
-#include "argparse.hpp"
+#include "cxxopts.hpp"
 
 #define MAPNIK_PREFIX "/usr/local"
 #define PROGRAM_NAME "minemapnik"
@@ -81,70 +81,58 @@ mapnik::box2d<double> coords_to_box(const mapnik::projection &proj, double lat0,
 
 int main(int argc, char **argv)
 {
-    constexpr auto stoi_fun = [](const std::string& value) { return std::stoi(value); };
-    constexpr auto stod_fun = [](const std::string& value) { return std::stod(value); };
-    argparse::ArgumentParser argparse(PROGRAM_NAME);
-    argparse.add_argument("width")
-            .help("width in px (raster) points (vector)")
-            .default_value(2048)
-            .action(stoi_fun);
-    argparse.add_argument("height")
-            .help("height in px (raster) points (vector)")
-            .default_value(2048)
-            .action(stoi_fun);
-    argparse.add_argument("lat0")
-            .help("min/max latitude")
-            .default_value(25.83 /*26.67*/)
-            .action(stod_fun);
-    argparse.add_argument("lon0")
-            .help("min/max longitude")
-            .default_value(-80.22 /*-81.90*/)
-            .action(stod_fun);
-    argparse.add_argument("lat1")
-            .help("other latitude")
-            .default_value(25.75 /*26.58*/)
-            .action(stod_fun);
-    argparse.add_argument("lon1")
-            .help("other longitude")
-            .default_value(-80.11 /*-81.80*/)
-            .action(stod_fun);
-    try {
-        argparse.parse_args(argc, argv);
-    } catch (const std::runtime_error& err) {
-        std::cerr << err.what() << std::endl;
-        std::cerr << argparse;
-        return 0;
-    }
+    cxxopts::Options options(argv[0], " - example command line options");
+        options
+          .positional_help("[optional args]")
+          .show_positional_help();
+        std::string map_xml;
+        int width;
+        int height;
+        double lat0, lon0, lat1, lon1;
+        bool raster, cairosvg;
+        options
+              .allow_unrecognised_options()
+              .add_options()
+              ("x,xml", "XML mapnik file", cxxopts::value<std::string>(map_xml)->default_value("openstreetmap-carto/project.xml"))
+              ("raster", "raster renderer", cxxopts::value<bool>(raster)->default_value("false"))
+              ("vector,cairo,svg", "cairo svg renderer", cxxopts::value<bool>(cairosvg)->default_value("true"))
+              ("help", "Print help")
+              ("w,width", "width in px (raster) points (vector)", cxxopts::value<int>(width)->default_value("2048"))
+              ("h,height", "height in px (raster) points (vector)", cxxopts::value<int>(height)->default_value("2048"))
+              ("lat0", "min/max latitude", cxxopts::value<double>(lat0)->default_value("25.83"))
+              ("lon0", "min/max longitude", cxxopts::value<double>(lon0)->default_value("-80.22"))
+              ("lat1", "other min/max latitude", cxxopts::value<double>(lat1)->default_value("25.75"))
+              ("lon1", "other min/max longitude", cxxopts::value<double>(lon1)->default_value("-80.11"))
+              //("vector", "A list of doubles", cxxopts::value<std::vector<double>>())
+              //("option_that_is_too_long_for_the_help", "A very long option")
+             ;
 
-    auto width = argparse.get<int>("width");
-    auto height = argparse.get<int>("height");
-    auto lat0 = argparse.get<double>("lat0");
-    auto lon0 = argparse.get<double>("lon0");
-    auto lat1 = argparse.get<double>("lat1");
-    auto lon1 = argparse.get<double>("lon1");
+    auto result = options.parse(argc, argv);
 
     mapnik::datasource_cache::instance().register_datasources(MAPNIK_PREFIX "/lib/mapnik/input/");
-    mapnik::freetype_engine::register_fonts(MAPNIK_PREFIX "/lib/mapnik/fonts");
-    mapnik::freetype_engine::register_fonts("/usr/share/fonts");
-    mapnik::freetype_engine::register_fonts("/usr/local/share/fonts");
+    mapnik::freetype_engine::register_fonts(MAPNIK_PREFIX "/lib/mapnik/fonts", true);
+    mapnik::freetype_engine::register_fonts("/usr/share/fonts", false);
+    mapnik::freetype_engine::register_fonts("/usr/local/share/fonts", false);
 
     mapnik::Map m(width, height, "+init=epsg:3857");
-    mapnik::load_map(m, "/home/paulyc/development/openstreetmap-carto/project.xml");
+    mapnik::load_map(m, map_xml);
     mapnik::projection proj(mapnik::projection(m.srs().c_str()));
 
     m.zoom_to_box(coords_to_box(proj, lat0, lon0, lat1, lon1));
-#ifdef RENDER_RASTER
-    mapnik::image_rgba8 im(width, height);
-    mapnik::agg_renderer<mapnik::image_rgba8> render(m, im);
-    render.apply();
-    mapnik::save_to_file(im, "image.png");
-#endif
-    mapnik::cairo_surface_ptr surface =
-        mapnik::cairo_surface_ptr(cairo_svg_surface_create("output.svg", width, height),
-        mapnik::cairo_surface_closer());
-    mapnik::cairo_ptr image_context(mapnik::create_context(surface));
-    mapnik::cairo_renderer<mapnik::cairo_ptr> svg_render(m, image_context, 1.0);
-    svg_render.apply();
+    if (raster) {
+        mapnik::image_rgba8 im(width, height);
+        mapnik::agg_renderer<mapnik::image_rgba8> render(m, im);
+        render.apply();
+        mapnik::save_to_file(im, "image.png");
+    }
+    if (cairosvg) {
+        mapnik::cairo_surface_ptr surface =
+            mapnik::cairo_surface_ptr(cairo_svg_surface_create("output.svg", width, height),
+            mapnik::cairo_surface_closer());
+        mapnik::cairo_ptr image_context(mapnik::create_context(surface));
+        mapnik::cairo_renderer<mapnik::cairo_ptr> svg_render(m, image_context, 1.0);
+        svg_render.apply();
+    }
 
     return 0;
 }
